@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="app_name">Avoider</string>
+    <string name="win">You win!</string>
+    <string name="lose">You lose!</string>
+    <string name="life">Life</string>
+
+</resources>
