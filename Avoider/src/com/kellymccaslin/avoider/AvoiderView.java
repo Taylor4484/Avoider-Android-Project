@@ -3,6 +3,7 @@ package com.kellymccaslin.avoider;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Random;
 
 import android.app.Activity;
 import android.content.Context;
@@ -31,8 +32,8 @@ public class AvoiderView extends SurfaceView implements SurfaceHolder.Callback
 	//private final float mDeltaT = 0.5f;
 	
 	// Game constants
-	private static final int INITIAL_GREEN = 6;
-	private static final int INITIAL_RED = 2;
+	private static final int INITIAL_TARGETS = 6;
+	private static final int INITIAL_BLOCKERS = 2;
 	private static final int MAX_LIVES = 10;
 	
 	private int numGreenHit;
@@ -48,15 +49,17 @@ public class AvoiderView extends SurfaceView implements SurfaceHolder.Callback
 	private Map<Integer,Integer> soundMap;
 	
 	// Game variables
-	private static Point ball; 
+	private static Point ball = new Point(); 
 	private static ArrayList<Point> lives = new ArrayList<Point>();
-	//private Point[] targets; Change to array lists?
-	//private Point[] blockers;
+	private static ArrayList<Point> targets = new ArrayList<Point>();
+	private static ArrayList<Point> blockers = new ArrayList<Point>();
 
-	private int tartgetVelocityX;
-	private int targetVelocityY;
-	private int blockerVelocityX;
-	private int blockerVelocityY;
+	private static int numTargets;
+	private static int numBlockers;
+	private static int targetVelocityX;
+	private static int targetVelocityY;
+	private static int blockerVelocityX;
+	private static int blockerVelocityY;
 	
 	private int ballInitialX;
 	private int ballInitialY;
@@ -89,9 +92,7 @@ public class AvoiderView extends SurfaceView implements SurfaceHolder.Callback
 		activity = (Activity) context;
 		
 		getHolder().addCallback(this);
-		
-		addGamePieces();
-		
+						
 		// Initialize sounds
 		soundPool = new SoundPool(1, AudioManager.STREAM_MUSIC, 0);
 		soundMap = new HashMap<Integer, Integer>();
@@ -111,18 +112,19 @@ public class AvoiderView extends SurfaceView implements SurfaceHolder.Callback
 		screenHeight = h;
 		
 		ballRadius = w / 25; 
+		ballSpeed = w * 3 / 2;
 		targetRadius = w / 25;
 		blockerRadius = w / 25;
 		
 		ballInitialX = w / 2;
 		ballInitialY = h / 2;
 		
-		lifeHeight = h / 25;
-		lifeWidth = w / 10;
+		lifeWidth = w / 15;
+		lifeHeight = lifeWidth;
 		
 		for(int i=0; i < MAX_LIVES; i++)
 		{
-			lives.add(new Point(0,i * lifeWidth));
+			lives.add(new Point((i * 40) ,0));
 		}
 		
 		strokeWidth = w / 36;
@@ -138,19 +140,44 @@ public class AvoiderView extends SurfaceView implements SurfaceHolder.Callback
 		blockerPaint.setStrokeWidth(strokeWidth);
 		blockerPaint.setColor(Color.RED);
 		
-		backgroundPaint.setColor(Color.BLUE);
+		backgroundPaint.setColor(Color.WHITE);
 		
+		addTargetsAndBlockers();
 		newGame();
 	}
 	
 	public void stopGame() {
+		targets.clear();
+		blockers.clear();
 		if (avoiderThread != null) 
 			avoiderThread.setRunning(false);
 	}
 	
 	public void releaseResources() {
+		targets.clear();
+		blockers.clear();
 		soundPool.release();
 		soundPool = null;
+	}
+	
+	private void addTargetsAndBlockers() {
+		
+		int randomXLimit = screenWidth - targetRadius;
+		int randomYLimit = screenHeight - targetRadius;
+		
+		for (int i = 0; i< INITIAL_TARGETS; i++) {
+			Random generator = new Random();
+			int x = generator.nextInt(randomXLimit);
+			int y = generator.nextInt(randomYLimit);
+			targets.add(new Point(x,y));
+		}
+		
+		for (int i = 0; i< INITIAL_BLOCKERS; i++) {
+			Random generator = new Random();
+			int x = generator.nextInt(randomXLimit);
+			int y = generator.nextInt(randomYLimit);
+			blockers.add(new Point(x,y));
+		}
 	}
 	
 	
@@ -163,49 +190,80 @@ public class AvoiderView extends SurfaceView implements SurfaceHolder.Callback
 		if (gameOver)
 		{
 			gameOver = false;
-			//avoiderThread = new AvoiderThread(getHolder());
-			//avoiderThread.start();
+			avoiderThread = new AvoiderThread(getHolder());
+			avoiderThread.start();
 		}
 				
 	}
-	
-	
-	private void addGamePieces()
-	{
-		
-		ball = new Point();
-		
-		// set target and blocker points
-	}
-	
 	
 	
 	//----------- To do while thread is running ---------------//
 	public static void updatePositions(double elapsedTimeMS)
 	{
 		
+		double interval = elapsedTimeMS / 1000.0; 
+		numTargets = targets.size();
+		numBlockers = blockers.size();
+		
+		Point target = targets.get(0);
+		
+		
+		// Update target positions
+		
+//		for (int i=0; i<numTargets; i++) {
+//			Point currentTarget = targets.get(i);
+//			currentTarget.x += interval * targetVelocityX;
+//			currentTarget.y += interval * targetVelocityY;
+//		}
+		
+		// Update blocker positions
+		
+//		for (int i=0; i<numBlockers; i++) {
+//			Point currentTarget = blockers.get(i);
+//			currentTarget.x += interval * blockerVelocityX;
+//			currentTarget.y += interval * blockerVelocityY;
+//		}
 	}
 	
+	@Override
+	public void onDraw(Canvas canvas) {
+		drawGameElements(canvas);
+	}
+	
+	// Draw background, ball, target and blockers
 	public static void drawGameElements(Canvas canvas) 
-	{
-		Log.v("Test","Draw game elements");
+	{		
+		numTargets = targets.size();
+		numBlockers = blockers.size();
 		
 		canvas.drawRect(0, 0, canvas.getWidth(), canvas.getHeight(), backgroundPaint);
 		
-		//canvas.drawCircle(ball.x, ball.y, ballRadius, ballPaint);
+		canvas.drawCircle(ball.x, ball.y, ballRadius, ballPaint);
+		
+		
+		for (int i=0; i<numTargets; i++) {
+			Point point = targets.get(i);
+			canvas.drawCircle(point.x, point.y, targetRadius, targetPaint);
+		}
+		
+		for (int i=0; i<numBlockers; i++) {
+			Point point = blockers.get(i);
+			canvas.drawCircle(point.x, point.y, blockerRadius, blockerPaint);
+		}
+		
+		addLives(canvas);
 	}
 	
 	public static void addLives(Canvas canvas) 
 	{
 	
-		Log.v("Test","Adding Lives");
-		
-		//canvas.drawRect(0, 0, lifeWidth, lifeHeight, lifePaint);
-//		for(int i = 0; i < numLives; i++)
-//		{
-//			Point point = lives.get(i);
-//			canvas.drawRect(point.x, point.y, lifeWidth, lifeHeight, lifePaint);
-//		}
+		// Add the current number of lives to the screen
+		for(int i = 0; i < numLives; i++)
+		{
+			Point point = lives.get(i);
+			canvas.drawRect(point.x, point.y, point.x + lifeWidth, point.y + lifeHeight, 
+					lifePaint);
+		}
 	}
 	
 	//-------------------------------------------------------//
@@ -215,14 +273,14 @@ public class AvoiderView extends SurfaceView implements SurfaceHolder.Callback
 	{
 		float x=event.values[0];
 		float y=event.values[1];
-		
-		// TODO: Handle x,y,z changes
+		// TODO: Handle x,y,z changes - change ball.x and ball.y appropriately
 	}
 
 
 	@Override
 	public void surfaceCreated(SurfaceHolder holder) 
 	{
+		setWillNotDraw(false);
 		avoiderThread = new AvoiderThread(holder);
 		avoiderThread.setRunning(true);
 		avoiderThread.start();

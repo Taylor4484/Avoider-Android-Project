@@ -37,9 +37,6 @@ public class AvoiderThread extends Thread {
 					double elapsedTimeMS = currentTime - previousFrameTime;
 					AvoiderView.totalElapsedTime += elapsedTimeMS / 1000.0;
 					AvoiderView.updatePositions(elapsedTimeMS);
-					AvoiderView.drawGameElements(canvas);
-					AvoiderView.addLives(canvas);
-					threadIsRunning = false;
 					previousFrameTime = currentTime;
 				}
 			}
