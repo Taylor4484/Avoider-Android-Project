@@ -57,6 +57,8 @@ public class AvoiderView extends SurfaceView implements SurfaceHolder.Callback
 	private static ArrayList<Point> blockers = new ArrayList<Point>();
 	private static Bitmap ballBitmap;
 	private static Bitmap lifeBitmap;
+	private static Bitmap targetBitmap;
+	private static Bitmap blockerBitmap;
 	
 	private static int numTargets;
 	private static int numBlockers;
@@ -82,13 +84,7 @@ public class AvoiderView extends SurfaceView implements SurfaceHolder.Callback
 	private static int targetDiameter; // Same as ball? 
 	private static int blockerDiameter; // Same as ball? 
 	
-	// Paint variables
-	private static Paint ballPaint = new Paint();
-	private static Paint lifePaint = new Paint();
-	private static Paint targetPaint = new Paint();
-	private static Paint blockerPaint = new Paint();
 	private static Paint backgroundPaint = new Paint();
-	private float strokeWidth;
 	
 	public AvoiderView(Context context, AttributeSet attrs)
 	{
@@ -117,8 +113,8 @@ public class AvoiderView extends SurfaceView implements SurfaceHolder.Callback
 		
 		ballDiameter = w / 12; 
 		ballSpeed = w * 3 / 2;
-		targetDiameter = w / 12;
-		blockerDiameter = w / 12;
+		targetDiameter = w / 8;
+		blockerDiameter = w / 13;
 		
 		ballInitialX = w / 2;
 		ballInitialY = h / 2;
@@ -138,11 +134,13 @@ public class AvoiderView extends SurfaceView implements SurfaceHolder.Callback
 		lifeBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.life);
 		lifeBitmap = Bitmap.createScaledBitmap(lifeBitmap, lifeWidth, lifeHeight, true);
 		
-		targetPaint.setStrokeWidth(strokeWidth);
-		targetPaint.setColor(Color.GREEN);
+		targetBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.target);
+		targetBitmap = Bitmap.createScaledBitmap(targetBitmap, targetDiameter,
+				targetDiameter, true);
 		
-		blockerPaint.setStrokeWidth(strokeWidth);
-		blockerPaint.setColor(Color.RED);
+		blockerBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.blocker);
+		blockerBitmap = Bitmap.createScaledBitmap(blockerBitmap, blockerDiameter,
+				blockerDiameter, true);
 		
 		backgroundPaint.setColor(Color.WHITE);
 		
@@ -246,14 +244,12 @@ public class AvoiderView extends SurfaceView implements SurfaceHolder.Callback
 		
 		for (int i=0; i<numTargets; i++) {
 			Point point = targets.get(i);
-			//canvas.drawCircle(point.x, point.y, targetRadius, targetPaint);
-			// TODO: Change to bitmap
+			canvas.drawBitmap(targetBitmap, point.x, point.y, null);
 		}
 		
 		for (int i=0; i<numBlockers; i++) {
 			Point point = blockers.get(i);
-			//canvas.drawCircle(point.x, point.y, blockerRadius, blockerPaint);
-			// TODO: Change to bitmap
+			canvas.drawBitmap(blockerBitmap, point.x, point.y, null);
 		}
 		
 		addLives(canvas);
