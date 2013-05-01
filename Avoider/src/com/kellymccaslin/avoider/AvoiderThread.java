@@ -1,5 +1,6 @@
 package com.kellymccaslin.avoider;
 
+import android.content.Context;
 import android.graphics.Canvas;
 import android.view.SurfaceHolder;
 
@@ -7,10 +8,15 @@ public class AvoiderThread extends Thread {
 
 	private SurfaceHolder surfaceHolder;
 	private boolean threadIsRunning = true;
+	private Canvas canvas;
+	private Context context;
+	private AvoiderView avoiderView;
 	
-	public AvoiderThread(SurfaceHolder holder)
+	public AvoiderThread(SurfaceHolder holder, Context ctxt, AvoiderView aView)
 	{
 		surfaceHolder = holder;
+		context = ctxt;
+		avoiderView = aView;
 		setName("AvoiderThread");
 	}
 	
@@ -36,8 +42,8 @@ public class AvoiderThread extends Thread {
 					long currentTime = System.currentTimeMillis();
 					double elapsedTimeMS = currentTime - previousFrameTime;
 					AvoiderView.totalElapsedTime += elapsedTimeMS / 1000.0;
-					AvoiderView.updatePositions(elapsedTimeMS);
-					AvoiderView.drawGameElements(canvas);
+					//AvoiderView.updatePositions(elapsedTimeMS);
+					//AvoiderView.drawGameElements(canvas);
 					previousFrameTime = currentTime;
 				}
 			}

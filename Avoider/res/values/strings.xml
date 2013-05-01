@@ -5,5 +5,7 @@
     <string name="win">You win!</string>
     <string name="lose">You lose!</string>
     <string name="life">Life</string>
+    <string name="results_format">$s</string>
+    <string name="reset_game">Reset Game</string>
 
 </resources>
