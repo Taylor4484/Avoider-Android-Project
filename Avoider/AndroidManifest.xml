@@ -9,7 +9,7 @@
   
    <application 
       android:label="@string/app_name" 
-      android:debuggable="true">
+      android:debuggable="true" android:icon="@drawable/ball">
       <activity android:name=".Avoider" 
          android:label="@string/app_name"
          android:screenOrientation="portrait">
