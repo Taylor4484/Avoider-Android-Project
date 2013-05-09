@@ -28,9 +28,9 @@ public class Avoider extends Activity {
 	private Sensor accelerometer;
 	public static Timer tmr;
 	public static TimerTask tsk = null;
-	private Handler RedrawHandler = new Handler();
+	public static Handler handler = new Handler();
+	public static Runnable runnable;
 	
-	//Move..maybe
 	int mScrWidth, mScrHeight;
     android.graphics.PointF mBallPos, mBallSpd;
 	
@@ -44,13 +44,13 @@ public class Avoider extends Activity {
 		avoiderView = (AvoiderView) findViewById(R.id.avoiderView);
 		
 		// Add sensor listener 
-		// set the screen always portait
+		// Set the screen always portrait
 		setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
 
 		sensorManager = (SensorManager)getSystemService(SENSOR_SERVICE);
 		accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
 		
-		// TODO: Set volume control stream
+		setVolumeControlStream(AudioManager.STREAM_MUSIC);
 		
 		 //get screen dimensions
         Display display = getWindowManager().getDefaultDisplay();  
@@ -64,12 +64,6 @@ public class Avoider extends Activity {
         mBallPos.y = mScrHeight/2; 
         mBallSpd.x = 0;
         mBallSpd.y = 0; 
-        
-//        //create initial ball
-//        mBallView = new BallView(this,mBallPos.x,mBallPos.y,5);
-//                
-//        mainView.addView(mBallView); //add ball to main screen
-//        mBallView.invalidate(); //call onDraw in BallView
         		
         //listener for accelerometer, use anonymous class for simplicity
         ((SensorManager)getSystemService(Context.SENSOR_SERVICE)).registerListener(
@@ -112,15 +106,18 @@ public class Avoider extends Activity {
 //		tmr.cancel();
 //		tmr = null;
 		AvoiderView.stopGame();
+		finish();
+
 	}
 	
     @Override
-    public void onResume() //app moved to foreground (also occurs at app startup)
+    public void onResume() //App moved to foreground (also occurs at app startup)
     {
-
-        //create timer to move ball to new position
+        //create timer task to move ball to new position
 //        tmr = new Timer(); 
-        tsk = new TimerTask() {
+//    	tsk = new TimerTask() {
+    	runnable = new Runnable() {
+    		@Override
 			public void run() {
 				//if debugging with external device, 
 				//  a cat log viewer will be needed on the device
@@ -140,13 +137,16 @@ public class Avoider extends Activity {
 				
 				AvoiderView.updatePositions();
 				//redraw ball. Must run in background thread to prevent thread lock.
-				RedrawHandler.post(new Runnable() {
+				handler.post(new Runnable() {
 				    public void run() {	
 					   avoiderView.invalidate();
 				  }});
-			}}; // TimerTask
+				handler.postDelayed(this, 10);
+			}
+		}; // TimerTask
 		
 //        tmr.schedule(tsk,10,10); //start timer
+		
         super.onResume();
     } // onResume
 	
@@ -157,6 +157,7 @@ public class Avoider extends Activity {
 		avoiderView.releaseResources();
 		System.runFinalizersOnExit(true); //wait for threads to exit before clearing app
 		android.os.Process.killProcess(android.os.Process.myPid());
+		System.exit(0);
 	}
 	
     //listener for config change. 
@@ -167,5 +168,6 @@ public class Avoider extends Activity {
 	{
        super.onConfigurationChanged(newConfig);
 	}
+
 
 }

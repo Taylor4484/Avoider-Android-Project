@@ -1,11 +1,22 @@
 package com.kellymccaslin.avoider;
 
+// TODO: 1. Add functionality so that more targets and blockers pop up as time goes on. 
+//       2. Add sound.
+//       3. (If time allows) Add vibration when target or blocker is hit. 
+
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Random;
 import java.util.Timer;
+import java.util.TimerTask;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import com.kellymccaslin.avoider.R;
 
@@ -24,6 +35,7 @@ import android.graphics.Rect;
 import android.hardware.SensorEvent;
 import android.media.AudioManager;
 import android.media.SoundPool;
+import android.os.Handler;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.Surface;
@@ -42,7 +54,6 @@ public class AvoiderView extends SurfaceView implements SurfaceHolder.Callback
 	private final float GRAVITY = 9.8f; // acceleration of gravity
 	private float mAx; // acceleration along x axis
 	private float mAy; // acceleration along y axis
-	//private final float mDeltaT = 0.5f;
 	
 	// Game constants
 	private static final int INITIAL_TARGETS = 6;
@@ -51,26 +62,39 @@ public class AvoiderView extends SurfaceView implements SurfaceHolder.Callback
 	
 	private static int numGreenHit;
 	private static int numLives;
+	private static double initialTime;
 	public static double totalElapsedTime;
-	private static boolean gameOver = true;
+	public static boolean gameOver = true;
 	private static boolean timerRunning = false;
-	//private boolean[] hitStates;
+	private static boolean positionsAdded = false;
 	
 	// Sound variables and constants
 	private static final int TARGET_SOUND_ID = 0;
 	private static final int BLOCKER_SOUND_ID = 1;
-	private SoundPool soundPool;
-	private Map<Integer,Integer> soundMap;
+	private static SoundPool soundPool;
+	private static Map<Integer,Integer> soundMap;
 	
 	// Game variables
 	public static android.graphics.PointF ball = new android.graphics.PointF();
 	private static ArrayList<Point> lives = new ArrayList<Point>();
-	private static ArrayList<Point> targets = new ArrayList<Point>();
-	private static ArrayList<Point> blockers = new ArrayList<Point>();
+	private static ConcurrentMap<Integer,Point> targets = 
+			new ConcurrentHashMap<Integer,Point>();
+	private static ConcurrentMap<Integer,Point> blockers = 
+			new ConcurrentHashMap<Integer,Point>();
+	private static ConcurrentMap<Integer,ArrayList> targetVelocities = 
+			new ConcurrentHashMap<Integer,ArrayList>();
+	private static ConcurrentMap<Integer,ArrayList> blockerVelocities = 
+			new ConcurrentHashMap<Integer,ArrayList>();
+	private static List<Integer> ti = new ArrayList<Integer>();
+	private static List<Integer> bi = new ArrayList<Integer>();
+//	private static ArrayList<Point> targets = new ArrayList<Point>();
+//	private static ArrayList<Point> blockers = new ArrayList<Point>();
+//	private static ArrayList<Point> removeBlockers = new ArrayList<Point>();
 	private static Bitmap ballBitmap;
 	private static Bitmap lifeBitmap;
 	private static Bitmap targetBitmap;
 	private static Bitmap blockerBitmap;
+	private static Bitmap backgroundBitmap;
 	
 	private static int numTargets;
 	private static int numBlockers;
@@ -101,6 +125,11 @@ public class AvoiderView extends SurfaceView implements SurfaceHolder.Callback
 	
 	private static Paint backgroundPaint = new Paint();
 	
+	private static Handler handA = new Handler();
+	private static Handler handB = new Handler();
+	private static Runnable runA;
+	private static Runnable runB;
+	
 	public AvoiderView(Context context, AttributeSet attrs)
 	{
 		super(context, attrs);
@@ -113,8 +142,8 @@ public class AvoiderView extends SurfaceView implements SurfaceHolder.Callback
 		// Initialize sounds
 		soundPool = new SoundPool(1, AudioManager.STREAM_MUSIC, 0);
 		soundMap = new HashMap<Integer, Integer>();
-		//soundMap.put(TARGET_SOUND_ID, soundPool.load(context, R.raw.target_hit, 1));
-		//soundMap.put(BLOCKER_SOUND_ID, soundPool.load(context, R.raw.blocker_hit, 1));
+		soundMap.put(TARGET_SOUND_ID, soundPool.load(context, R.raw.target_hit, 1));
+		soundMap.put(BLOCKER_SOUND_ID, soundPool.load(context, R.raw.blocker_hit, 1));
 		
 	}
 	
@@ -164,24 +193,18 @@ public class AvoiderView extends SurfaceView implements SurfaceHolder.Callback
 		blockerBitmap = Bitmap.createScaledBitmap(blockerBitmap, blockerDiameter,
 				blockerDiameter, true);
 		
-		backgroundPaint.setColor(Color.WHITE);
+		backgroundBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.ice);
+		backgroundBitmap = Bitmap.createScaledBitmap(backgroundBitmap, screenWidth, screenHeight, true);
 		
-
-//		targetVelocityX = 1;
-//		targetVelocityY = 1; 
-//		blockerVelocityX = 1;
-//		blockerVelocityY = 1;
 		newGame();
 	}
 	
 	public static void stopGame() {
 		targets.clear();
 		blockers.clear();
-		if (timerRunning) {
-			Avoider.tmr.cancel();
-			Avoider.tmr.purge();
-			timerRunning = false;
-		}
+		Avoider.handler.removeCallbacks(Avoider.runnable);
+		handA.removeCallbacks(runA);
+		handB.removeCallbacks(runB);
 	}
 	
 	public void releaseResources() {
@@ -197,16 +220,34 @@ public class AvoiderView extends SurfaceView implements SurfaceHolder.Callback
 		
 		ball.set(ballInitialX, ballInitialY);
 		
+		addTargetsAndBlockers();
+		
 		if (gameOver)
 		{
 			gameOver = false;
 		}
-		addTargetsAndBlockers();
-		if (!timerRunning) {
-			Avoider.tmr = new Timer();
-			Avoider.tmr.schedule(Avoider.tsk,10,10);
-			timerRunning = true;
-		}
+		
+		Avoider.handler.postDelayed(Avoider.runnable, 10);
+		
+		runA = new Runnable() {
+			@Override
+			public void run() {
+				addBlocker();
+				handA.postDelayed(runA, 10000);
+			}
+		};
+		runB = new Runnable() {
+			@Override
+			public void run() {
+				addTarget();
+				handB.postDelayed(runB, 2000);
+			}
+		};
+		
+		handA.postDelayed(runA, 10000);
+		handB.postDelayed(runB, 2000);
+
+		initialTime = System.currentTimeMillis();
 	}
 	
 	private static void addTargetsAndBlockers() {
@@ -214,38 +255,46 @@ public class AvoiderView extends SurfaceView implements SurfaceHolder.Callback
 		int randomXLimit = screenWidth - targetDiameter;
 		int randomYLimit = screenHeight - targetDiameter;
 		
+		numTargets = INITIAL_TARGETS;
+		numBlockers = INITIAL_BLOCKERS;
+		
 		for (int i = 0; i< INITIAL_TARGETS; i++) {
-			Random generator = new Random();
-			int x = generator.nextInt(randomXLimit);
-			int y = generator.nextInt(randomYLimit);
-			targets.add(new Point(x,y));
+			Random pointGen = new Random();
+			int x = pointGen.nextInt(randomXLimit);
+			int y = pointGen.nextInt(randomYLimit);
+			Point pos = new Point(x,y);
+			targets.put(i, pos);
+			
+			Random velGen = new Random();
+			double theta1 = velGen.nextDouble() * 360.0;
+			double theta2 = velGen.nextDouble() * 360.0;
+			ArrayList<Double> vel = new ArrayList<Double>();
+			vel.add(Math.sin(theta1));
+			vel.add(Math.sin(theta2));
+			targetVelocities.put(i, vel);
+			
+			ti.add(i);
 		}
 		
 		// Set initial velocities
 		for (int i = 0; i< INITIAL_BLOCKERS; i++) {
-			Random generator = new Random();
-			int x = generator.nextInt(randomXLimit);
-			int y = generator.nextInt(randomYLimit);
-			blockers.add(new Point(x,y));
-		}
-		
-		for (int i=0; i<INITIAL_TARGETS; i++) {
-			Random generator = new Random();
-			double theta1 = generator.nextDouble() * 360.0;
-			double theta2 = generator.nextDouble() * 360.0;
-			targetVelocitiesX.add(i, Math.sin(theta1));
-			targetVelocitiesY.add(i, Math.sin(theta2));
-		}
-
-		for (int i=0; i<INITIAL_BLOCKERS; i++) {
-			Random generator = new Random();
-			double theta1 = generator.nextDouble() * 360.0;
-			double theta2 = generator.nextDouble() * 360.0;
+			Random pointGen = new Random();
+			int x = pointGen.nextInt(randomXLimit);
+			int y = pointGen.nextInt(randomYLimit);
+			Point pos = new Point(x,y);
+			blockers.put(i, pos);
 			
-			blockerVelocitiesX.add(i, Math.sin(theta1));
-			blockerVelocitiesY.add(i, Math.sin(theta2));
+			Random velGen = new Random();
+			double theta1 = velGen.nextDouble() * 360.0;
+			double theta2 = velGen.nextDouble() * 360.0;
+			ArrayList<Double> vel = new ArrayList<Double>();
+			vel.add(Math.sin(theta1));
+			vel.add(Math.sin(theta2));
+			blockerVelocities.put(i, vel);
+			
+			bi.add(i);
 		}
-
+		positionsAdded = true;
 	}
 	
 	
@@ -256,94 +305,93 @@ public class AvoiderView extends SurfaceView implements SurfaceHolder.Callback
 		if (gameOver == true) {
 			return;
 		}
-		numTargets = targets.size();
-		numBlockers = blockers.size();
 		
 		checkForCollisions();
+		addThings();
 		
 		// Update target positions
-		Iterator<Point> iter = targets.iterator();
-		Iterator<Double> velX = targetVelocitiesX.iterator();
-		Iterator<Double> velY = targetVelocitiesY.iterator();
-		int i=0;
-		while (iter.hasNext()) {
+		Iterator<Integer> iter = ti.iterator();
+		while(iter.hasNext()) {
 			// Get center point of target
-			Point target = iter.next();
-			double xVelocity = velX.next();
-			double yVelocity = velY.next();
-			int changeX;
-			int changeY;
-			
-			if (target.x + targetDiameter > screenWidth || target.x <= 0) {
-				xVelocity *= -1;
-				targetVelocitiesX.set(i, xVelocity);
+			int i = iter.next();
+			Point target = targets.get(i);
+			if (target != null) {
+				ArrayList<Double> vels = targetVelocities.get(i);
+				double xVelocity = vels.get(0);
+				double yVelocity = vels.get(1);
+				int changeX;
+				int changeY;
+				
+				if (target.x + targetDiameter > screenWidth || target.x <= 0) {
+					xVelocity *= -1;
+					vels.set(0, xVelocity);
+				}
+				if (target.y + targetDiameter > screenHeight || target.y <= 0) {
+					yVelocity *= -1;
+					vels.set(1, yVelocity);
+				}
+				
+				if (xVelocity < 0) {
+					changeX = (int) Math.floor(xVelocity);
+				}
+				else {
+					changeX = (int) Math.ceil(xVelocity);
+				}
+				if (yVelocity < 0) {
+					changeY = (int) Math.floor(yVelocity);
+				}
+				else {
+					changeY = (int) Math.ceil(yVelocity);
+				}
+				
+				target.x += changeX;
+				target.y += changeY;
+				Log.v("Test", "Updated velocity: " + vels);
+				targets.replace(i, target);
+				targetVelocities.replace(i, vels);
 			}
-			if (target.y + targetDiameter > screenHeight || target.y <= 0) {
-				yVelocity *= -1;
-				targetVelocitiesY.set(i, yVelocity);
-			}
-			
-			if (xVelocity < 0) {
-				changeX = (int) Math.floor(xVelocity);
-			}
-			else {
-				changeX = (int) Math.ceil(xVelocity);
-			}
-			if (yVelocity < 0) {
-				changeY = (int) Math.floor(yVelocity);
-			}
-			else {
-				changeY = (int) Math.ceil(yVelocity);
-			}
-	
-			target.x += changeX;
-			target.y += changeY;
-	
-			targets.set(i, new Point(target.x, target.y));
-			i++;
 		}
 		
 		
 		// Update blocker positions
-		iter = blockers.iterator();
-		velX = blockerVelocitiesX.iterator();
-		velY = blockerVelocitiesY.iterator();
-		i=0;
-		while (iter.hasNext()) {
-			Point blocker = iter.next();
-			double xVelocity = velX.next();
-			double yVelocity = velY.next();
-			int changeX;
-			int changeY;
-			
-			if (blocker.x + blockerDiameter > screenWidth || blocker.x <= 0) {
-				xVelocity *= -1;
-				blockerVelocitiesX.set(i, xVelocity);
+		Iterator<Integer> iterB = bi.iterator();
+		while(iterB.hasNext()) {
+			int i = iterB.next();
+			Point blocker = blockers.get(i);
+			if (blocker != null) {
+				ArrayList<Double> vels = blockerVelocities.get(i);
+				double xVelocity = vels.get(0);
+				double yVelocity = vels.get(1);
+				int changeX;
+				int changeY;
+				
+				if (blocker.x + blockerDiameter > screenWidth || blocker.x <= 0) {
+					xVelocity *= -1;
+					vels.set(0, xVelocity);
+				}
+				if (blocker.y + blockerDiameter > screenHeight || blocker.y <= 0) {
+					yVelocity *= -1;
+					vels.set(1, yVelocity);
+				}
+				
+				if (xVelocity < 0) {
+					changeX = (int) Math.floor(xVelocity);
+				}
+				else {
+					changeX = (int) Math.ceil(xVelocity);
+				}
+				if (yVelocity < 0) {
+					changeY = (int) Math.floor(yVelocity);
+				}
+				else {
+					changeY = (int) Math.ceil(yVelocity);
+				}
+				
+				blocker.x += changeX;
+				blocker.y += changeY;
+				blockers.replace(i,blocker);
+				blockerVelocities.replace(i, vels);
 			}
-			if (blocker.y + blockerDiameter > screenHeight || blocker.y <= 0) {
-				yVelocity *= -1;
-				blockerVelocitiesY.set(i, yVelocity);
-			}
-			
-			if (xVelocity < 0) {
-				changeX = (int) Math.floor(xVelocity);
-			}
-			else {
-				changeX = (int) Math.ceil(xVelocity);
-			}
-			if (yVelocity < 0) {
-				changeY = (int) Math.floor(yVelocity);
-			}
-			else {
-				changeY = (int) Math.ceil(yVelocity);
-			}
-	
-			blocker.x += changeX;
-			blocker.y += changeY;
-
-	
-			blockers.set(i, new Point(blocker.x, blocker.y));
-			i++;
 		}
 	}
 	
@@ -353,97 +401,112 @@ public class AvoiderView extends SurfaceView implements SurfaceHolder.Callback
 		// Get center point of ball
 		int ballX = (int) ball.x + ballRadius;
 		int ballY = (int) ball.y + ballRadius;
-		
-		Iterator<Point> iter = targets.iterator();
-		Iterator<Double> velX = targetVelocitiesX.iterator();
-		Iterator<Double> velY = targetVelocitiesY.iterator();
-		int i=0;
-		while (iter.hasNext()) {
-			// Get center point of target
-			Point target = iter.next();
-			double xVelocity = velX.next();
-			double yVelocity = velY.next();
-			int centerX = target.x + targetRadius;
-			int centerY = target.y + targetRadius;
 
-			double distance = Math.sqrt(Math.pow(ball.x - centerX,2) + Math.pow(ball.y - centerY,2));
-			
-			if (distance <= ballRadius + targetRadius) {
-				// COLLISION!
-				numGreenHit++; 
-				// Remove target and its velocities
-				iter.remove();
-				velX.remove();
-				velY.remove();
-//				targetVelocitiesX.remove(i);
-//				targetVelocitiesY.remove(i);
-				if (numGreenHit == 5) {
-					numLives++;
-					numGreenHit = 0;
-				}
-				if (numLives == 10) {
-					// GAME OVER - You won
-					stopGame();
-					showGameOverDialog(R.string.win);
+		Iterator<Integer> colIter = ti.iterator();
+		while(colIter.hasNext()) {
+			// Get center point of target
+			int i = colIter.next();
+			Point target = targets.get(i);
+			if (target != null) {
+				ArrayList<Double> vels = targetVelocities.get(i);
+				double xVelocity = vels.get(0);
+				double yVelocity = vels.get(1);
+				int centerX = target.x + targetRadius;
+				int centerY = target.y + targetRadius;
+	
+				double distance = Math.sqrt(Math.pow(ball.x - centerX,2) + Math.pow(ball.y - centerY,2));
+				
+				if (distance <= ballRadius + targetRadius) {
+					// COLLISION!
+					soundPool.play(soundMap.get(TARGET_SOUND_ID), 1, 1, 1, 0, 1f);
+					numGreenHit++; 
+					// Remove target and its velocities
+					targets.remove(i);
+					targetVelocities.remove(i);
+					colIter.remove();
+					
+					
+					if (numGreenHit == 2) {
+						numLives++;
+						numGreenHit = 0;
+					}
+					if (numLives == 10) {
+						// GAME OVER - You won
+						stopGame();
+						showGameOverDialog(R.string.win);
+					}
 				}
 			}
-			i++;
 		}
 		
-		iter = blockers.iterator();
-		velX = blockerVelocitiesX.iterator();
-		velY = blockerVelocitiesY.iterator();
-		i=0;
-		while (iter.hasNext()) {
-			// Get center point of target
-			Point blocker = iter.next();
-			double xVelocity = velX.next();
-			double yVelocity = velY.next();
-			int centerX = blocker.x + blockerRadius;
-			int centerY = blocker.y + blockerRadius;
-
-			double distance = Math.sqrt(Math.pow(ball.x - centerX,2) + Math.pow(ball.y - centerY,2));
-			
-			if (distance <= ballRadius + blockerRadius) {
-				// COLLISION!
-				numLives--;
-				iter.remove();
-				velX.remove();
-				velY.remove();
-//				blockerVelocitiesX.remove(i);
-//				blockerVelocitiesY.remove(i);
-				if (numLives == 0) {
-					//GAME OVER - You lose
-					stopGame();
-					showGameOverDialog(R.string.lose);
+		Iterator<Integer> colIterB = bi.iterator();
+		while(colIterB.hasNext()) {
+			int i = colIterB.next();
+			Point blocker = blockers.get(i);
+			if (blocker != null) {
+				ArrayList<Double> vels = blockerVelocities.get(i);
+				int centerX = blocker.x + blockerRadius;
+				int centerY = blocker.y + blockerRadius;
+	
+				double distance = Math.sqrt(Math.pow(ball.x - centerX,2) + Math.pow(ball.y - centerY,2));
+				
+				if (distance <= ballRadius + blockerRadius) {
+					// COLLISION!
+					soundPool.play(soundMap.get(BLOCKER_SOUND_ID), 1, 1, 1, 0, 1f);
+					numLives--;
+					blockers.remove(i);
+					blockerVelocities.remove(i);
+					colIterB.remove();
+					
+					if (numLives == 0) {
+						//GAME OVER - You lose
+						stopGame();
+						showGameOverDialog(R.string.lose);
+					}
 				}
 			}
-			i++;
 		}
 	}
 	
+	public static void addThings() {
+		totalElapsedTime = System.currentTimeMillis() - initialTime;
+		
+		totalElapsedTime = totalElapsedTime / 1000; 
+		
+		if (totalElapsedTime % 2 == 0) {
+			Log.v("Test", "Added blocker");
+			addBlocker();
+		}
+		
+		if (totalElapsedTime % 5 == 0) {
+			addTarget();
+		}
+	}
 	
 	@Override
 	public void onDraw(Canvas canvas) {
 		super.onDraw(canvas);
 
-//		numTargets = targets.size();
-//		numBlockers = blockers.size();
-		
-		canvas.drawRect(0, 0, canvas.getWidth(), canvas.getHeight(), backgroundPaint);
+		canvas.drawBitmap(backgroundBitmap, 0, 0, null);
 		
 		canvas.drawBitmap(ballBitmap, ball.x, ball.y, null);
-		
-		Iterator<Point> targetIter = targets.iterator();
+
+		Iterator<Integer> targetIter = ti.iterator();
 		while(targetIter.hasNext()) {
-			Point point = targetIter.next();
-			canvas.drawBitmap(targetBitmap, point.x, point.y, null);
+			int i = targetIter.next();
+			if (targets.get(i) != null) {
+				Point point = targets.get(i);
+				canvas.drawBitmap(targetBitmap, point.x, point.y, null);
+			}
 		}
 		
-		Iterator<Point> blockerIter = blockers.iterator();
+		Iterator<Integer> blockerIter = bi.iterator();
 		while(blockerIter.hasNext()) {
-			Point point = blockerIter.next();
-			canvas.drawBitmap(blockerBitmap, point.x, point.y, null);
+			int i = blockerIter.next();
+			if (blockers.get(i) != null) {
+				Point point = blockers.get(i);
+				canvas.drawBitmap(blockerBitmap, point.x, point.y, null);
+			}
 		}
 		
 		addLives(canvas);
@@ -458,6 +521,52 @@ public class AvoiderView extends SurfaceView implements SurfaceHolder.Callback
 			Point point = lives.get(i);
 			canvas.drawBitmap(lifeBitmap, point.x, point.y, null);
 		}
+	}
+	
+	private static void addTarget() {
+		int randomXLimit = screenWidth - targetDiameter;
+		int randomYLimit = screenHeight - targetDiameter;
+		numTargets++;
+		int i = numTargets;
+		
+		Random pointGen = new Random();
+		int x = pointGen.nextInt(randomXLimit);
+		int y = pointGen.nextInt(randomYLimit);
+		Point pos = new Point(x,y);
+		targets.put(i, pos);
+		
+		Random velGen = new Random();
+		double theta1 = velGen.nextDouble() * 360.0;
+		double theta2 = velGen.nextDouble() * 360.0;
+		ArrayList<Double> vel = new ArrayList<Double>();
+		vel.add(Math.sin(theta1));
+		vel.add(Math.sin(theta2));
+		targetVelocities.put(i, vel);
+		
+		ti.add(i);
+	}
+	
+	private static void addBlocker() {
+		int randomXLimit = screenWidth - targetDiameter;
+		int randomYLimit = screenHeight - targetDiameter;
+		numBlockers++;
+		int i = numBlockers; 
+		
+		Random pointGen = new Random();
+		int x = pointGen.nextInt(randomXLimit);
+		int y = pointGen.nextInt(randomYLimit);
+		Point pos = new Point(x,y);
+		blockers.put(i, pos);
+		
+		Random velGen = new Random();
+		double theta1 = velGen.nextDouble() * 360.0;
+		double theta2 = velGen.nextDouble() * 360.0;
+		ArrayList<Double> vel = new ArrayList<Double>();
+		vel.add(Math.sin(theta1));
+		vel.add(Math.sin(theta2));
+		blockerVelocities.put(i, vel);
+		
+		bi.add(i);
 	}
 	
 	//-------------------------------------------------------//
